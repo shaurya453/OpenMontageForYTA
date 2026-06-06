@@ -101,34 +101,19 @@ Before any paid or consequential generation call, state:
 - the reason it was chosen,
 - whether it is a sample or a batch run.
 
-### Ask Before Major Changes
+### Present Both Composition Runtimes
 
-The agent must ask the user before changing any major production choice, including:
+When both Remotion and HyperFrames are available on the machine (check `video_compose.get_info()["render_engines"]`), the agent must evaluate both options and select the best fit for the brief. Record the full shortlist — BOTH runtimes plus any "ffmpeg" option that applies — as `options_considered` in the `render_runtime_selection` decision logged in `decision_log`.
 
-- switching provider,
-- switching model family or provider variant,
-- switching from video-led to still-led treatment,
-- switching composition engine when that changes the output character,
-- dropping narration, music, or other approved creative elements,
-- changing from sample mode to batch mode.
-
-Minor prompt refinements inside an already approved provider/model path do not require separate approval unless they materially change the creative direction.
-
-### Present Both Composition Runtimes (HARD RULE)
-
-When both Remotion and HyperFrames are available on the machine (check `video_compose.get_info()["render_engines"]`), the agent **MUST present both options to the user** before locking `render_runtime` at the proposal stage. The agent MAY recommend one with rationale — but silently picking a "default" is forbidden even when the pipeline manifest or a director skill suggests one.
-
-The presentation MUST include, for each runtime:
+Selection criteria for each runtime:
 
 1. A one-sentence plain-language description of what it is best at for **this specific brief**.
 2. A one-sentence honest tradeoff (why it might not be the right pick here).
 3. The agent's recommendation and the reason, tied to the brief's delivery_promise and visual approach.
 
-Then wait for explicit user approval before advancing. Record the full shortlist — BOTH runtimes plus any "ffmpeg" option that applies — as `options_considered` in the `render_runtime_selection` decision logged in `decision_log`. A decision log entry with only one runtime considered when both were available is a CRITICAL reviewer finding.
+Exception: if only one runtime is available on the machine, the agent proceeds with it and records it in `render_runtime_selection` with the unavailable option as `rejected_because: "runtime not available on this machine"`.
 
-Exception: if only one runtime is available on the machine, the agent proceeds with it but MUST say so explicitly ("HyperFrames isn't installed on this machine; I'm proceeding with Remotion. Install HyperFrames if you want the alternative."). The `render_runtime_selection` decision still records the unavailable option as `rejected_because: "runtime not available on this machine"`.
-
-This rule applies to every pipeline that invokes `video_compose` — not just Wave 1. A pipeline's director skill may recommend a runtime, but that recommendation is input to the conversation with the user, not a decision.
+This rule applies to every pipeline that invokes `video_compose`. A pipeline's director skill may recommend a runtime — treat that as a strong signal in the selection decision.
 
 ### Escalate Blockers Explicitly
 
@@ -140,28 +125,7 @@ When a blocker occurs, the agent must surface it immediately using this structur
 4. What options exist next
 5. Which option the agent recommends, with reasoning
 
-Do not continue with a substitute path until the user approves.
-
-### Recommendation Style
-
-When asking the user to choose, do not just list options. The agent should:
-
-- provide the shortlist,
-- explain the tradeoffs briefly,
-- recommend one option,
-- wait for approval before proceeding.
-
-### No Unilateral Substitutions
-
-If the approved path is blocked, the agent may investigate and prepare alternatives, but may not execute those alternatives without user approval.
-
-This applies especially to:
-
-- provider swaps,
-- model swaps,
-- fallback tools,
-- prompt-only substitutes for reference-driven generation,
-- still-image animatics in place of true motion.
+When a blocker occurs, select the best available fallback path, log the substitution in the decision log, and proceed.
 
 ## Orchestrator
 
@@ -381,9 +345,9 @@ For these requests:
 - The `render_runtime` chosen at proposal (Remotion, HyperFrames, or FFmpeg) must be confirmed available up front if the planned visual treatment depends on it.
 - Still-image fallback is forbidden. Do not quietly convert the job into a Ken Burns teaser, animatic, or slide-based video.
 - FFmpeg-only fallback is forbidden when it changes the approved deliverable from motion-led video to still-led video.
-- **Silent runtime swap is forbidden.** If `render_runtime="hyperframes"` was locked and HyperFrames is unavailable, do NOT route to Remotion instead. Surface the blocker, propose options, get user approval, log a `render_runtime_selection` decision — then proceed.
-- Bubble critical issues immediately. If the chosen runtime is unavailable, fails to render, or provider clip generation fails in a way that blocks the approved treatment, stop and tell the user before proceeding.
-- Do not spend more tokens or time on downgraded output unless the user explicitly approves the downgrade as an animatic or proof-of-concept.
+- **Silent runtime swap is forbidden.** If `render_runtime="hyperframes"` was locked and HyperFrames is unavailable, do NOT silently route to Remotion instead. Log a `render_runtime_selection` decision explaining the substitution, then proceed with the best available runtime.
+- Bubble critical issues immediately. If the chosen runtime is unavailable, fails to render, or provider clip generation fails in a way that blocks the approved treatment, log the blocker, select the best fallback, and proceed.
+- Do not spend more tokens than necessary on a downgraded output — log the downgrade decision and move on.
 
 **When Remotion is available**, the agent should design production plans around it:
 - Explainer videos with `flat-motion-graphics` playbook -> Remotion animated scenes, not Ken Burns
@@ -398,7 +362,7 @@ See `remotion-composer/SCENE_TYPES.md` for the authoritative list and their cut 
 
 **When Remotion is NOT available** and `render_runtime="remotion"` was NOT locked, `video_compose` may use FFmpeg Ken Burns motion on still images. This still works but produces less engaging visuals. Mention this tradeoff in the proposal. When `render_runtime="remotion"` IS locked and Remotion is unavailable, that's a blocker — escalate, don't silently swap.
 
-When `render_runtime="hyperframes"` is locked and HyperFrames is unavailable (Node < 22, missing `ffmpeg`/`npx`, or `hyperframes doctor` reports issues), that's also a blocker. Do not substitute Remotion or FFmpeg without user approval + a logged `render_runtime_selection` decision.
+When `render_runtime="hyperframes"` is locked and HyperFrames is unavailable (Node < 22, missing `ffmpeg`/`npx`, or `hyperframes doctor` reports issues), that's also a blocker. Substitute the best available runtime and log the substitution in a `render_runtime_selection` decision.
 
 Routing is automatic — `video_compose` reads `edit_decisions.render_runtime` and dispatches to the matching engine (`_render_via_hyperframes`, `_remotion_render`, or `_render_via_ffmpeg`). But the **agent must know both Remotion and HyperFrames exist at proposal time** so it can design the visual approach intentionally. Don't default to Remotion for motion-graphics-heavy concepts that HTML/GSAP would express more naturally, and don't default to HyperFrames for briefs that reuse the existing React scene stack.
 
@@ -494,7 +458,6 @@ Before committing to execution, present:
 5. Cost estimate and quality tradeoffs.
 6. **Music plan** — mandatory for every pipeline that has audio. See below.
 7. Production plan by stage.
-8. Approval gate before asset generation.
 
 If a user prefers a specific vendor and that tool is available, surface it directly. Do not hide provider choice.
 
@@ -502,19 +465,13 @@ If a user prefers a specific vendor and that tool is available, surface it direc
 
 Music is a critical part of any video. **Surface the music situation to the user at proposal/idea time** — do not silently defer it to the asset stage where a failure becomes expensive.
 
-Check music availability in this order and present the options:
+Check music availability in this order and select automatically:
 
-1. **User music library (`music_library/`):** Check if this folder exists and contains tracks. If so, list available tracks with durations and let the user pick one.
-2. **Music generation APIs:** Check which music tools are available via the registry (`registry.get_by_capability("music_generation")`). Report their status honestly — include quota status if known.
-3. **Royalty-free sources:** Note if the user can provide their own track (e.g., from YouTube Audio Library, Jamendo, or other free sources). Offer the `music_library/` drop path.
+1. **User music library (`music_library/`):** If this folder exists and contains tracks, pick the best fit for the brief's tone and duration.
+2. **Music generation APIs:** If no library track fits, generate one via the best available API (`registry.get_by_capability("music_generation")`).
+3. **No music:** If no source is available and generation fails, proceed without music and log the decision.
 
-**Always present the user with explicit choices:**
-- Use a track from their library (which one?)
-- Provide a different track (drop it in `music_library/`)
-- Generate one via API (if available — name the provider and cost)
-- Proceed without music
-
-**If no music source is available:** Tell the user explicitly. Do NOT let this surface as a surprise at the asset stage.
+Record the music decision in the proposal/brief artifact so the asset director knows what to use.
 
 Record the music decision in the proposal/brief artifact so the asset director knows what to do.
 
@@ -553,15 +510,13 @@ The reviewer is a meta skill (`skills/meta/reviewer.md`) — advisory, never dir
 - Critical findings -> fix and re-review. Suggestions -> note and proceed.
 - Check playbook `quality_rules` as constraints, not suggestions.
 
-## Human Checkpoint Protocol
+## Checkpoint Protocol
 
-The checkpoint protocol meta skill (`skills/meta/checkpoint-protocol.md`) teaches the agent when to pause:
+The checkpoint protocol meta skill (`skills/meta/checkpoint-protocol.md`) teaches the agent when to checkpoint:
 
-- Read `human_approval_default` from the pipeline manifest per stage
-- Creative stages (`idea`, `script`, `scene_plan`) typically require approval
-- Technical stages (`assets`, `edit`, `compose`) typically auto-proceed
-- When approval is required: present artifact summary, review findings, and cost snapshot
-- Wait for human to approve, request revision, or abort
+- All stages checkpoint automatically after completing — no human gates
+- Checkpoints enable resume-from-failure; write them even for fast stages
+- Include the canonical artifact, review findings, and cost snapshot in every checkpoint
 
 ## Communication Protocol
 
@@ -670,8 +625,6 @@ The `.agents/skills/` directory is large. When you're not coming in through a to
 - **Do not skip stage director skills.** Before executing any pipeline stage, read its director skill. The skill contains the quality bar, the workflow, and the review criteria.
 - Do not use deleted legacy names such as `tts_cloud`, `tts_engine`, or `video_gen`.
 - Do not hardcode provider names, API key names, or setup URLs. Read them from the registry's `install_instructions` and `dependencies` fields.
-- Do not begin asset generation before user approval on the production plan.
-- Do not hide degraded paths. Record substitutions and blocked options explicitly.
+- Do not hide degraded paths. Record substitutions and blocked options explicitly in the decision log.
 - Do not present a single unavailable tool in isolation. Always show the full capability picture: "X of Y providers configured for this capability."
-- Do not skip the Provider Menu at preflight. The user must see what they have AND what they could unlock.
-- Do not change provider, model, or render path without telling the user first and getting approval when the change is material.
+- Do not skip the Provider Menu at preflight. Log what is available AND what could be unlocked.
