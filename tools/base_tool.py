@@ -326,6 +326,7 @@ class BaseTool(ABC):
             resolved_cmd,
             capture_output=True,
             text=True,
+            stdin=subprocess.DEVNULL,
             timeout=timeout,
             cwd=cwd,
             check=True,
