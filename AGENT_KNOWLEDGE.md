@@ -118,22 +118,42 @@ Use `prefix`/`suffix` for units. `formatDisplayValue` auto-formats ≥1M → "3.
 
 ## TTS — edge-tts
 
-### Replace all periods with commas in narration scripts
+### Generate TTS sentence by sentence — never as a single block
 
-edge-tts inserts a hard pause at every period `.`, even in single-block calls. For
-documentary or explainer VO this creates dead air at every sentence boundary.
+edge-tts prosody degrades severely on long scripts. Passing a 10-minute narration as
+one block flattens all intonation — every sentence gets "mid-clause" delivery with no
+proper sentence-ending fall. Each sentence only gets natural prosody when rendered on
+its own individual call.
 
-**Rule**: write TTS text with commas as the primary delimiter. No periods mid-script.
+**Rule**: split the narration at sentence boundaries (`.`, `!`, `?`), call edge-tts
+once per sentence writing to a numbered temp file, then concatenate with ffmpeg.
 
+```python
+import re, subprocess
+
+sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', script) if s.strip()]
+for i, sent in enumerate(sentences):
+    subprocess.run(
+        ['edge-tts', '-t', sent, '-v', voice, '--write-media', f'/tmp/seg_{i:03d}.mp3'],
+        check=True, stdin=subprocess.DEVNULL, capture_output=True,
+    )
+
+with open('/tmp/tts_list.txt', 'w') as f:
+    for i in range(len(sentences)):
+        f.write(f"file '/tmp/seg_{i:03d}.mp3'\n")
+
+subprocess.run(
+    ['ffmpeg', '-y', '-f', 'concat', '-safe', '0',
+     '-i', '/tmp/tts_list.txt', '-c', 'copy', narration_path],
+    check=True, stdin=subprocess.DEVNULL, capture_output=True,
+)
 ```
-# Bad (pauses at every sentence):
-"In 2024, Earth crossed the line. Not in some distant future. Last year."
 
-# Good (continuous flow):
-"In 2024, Earth crossed the line, not in some distant future, last year,"
-```
+Use correct full-sentence punctuation in each sentence. Never flatten sentences into
+comma-separated runs — that destroys natural intonation.
 
-Exception: a deliberate dramatic pause — use a comma with a longer sentence before it.
+Note: edge-tts XML-escapes all input before sending to the SSML API. Custom `<break/>`
+or `<emphasis>` tags will not work — they are passed through as literal text.
 
 ### Write full grammatical English — apostrophes and possessives
 
