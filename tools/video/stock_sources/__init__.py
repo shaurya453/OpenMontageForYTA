@@ -23,6 +23,9 @@ import importlib
 import inspect
 import pkgutil
 
+from tools.base_tool import _load_dotenv as _base_load_dotenv
+_base_load_dotenv()
+
 from .base import Candidate, SearchFilters, StockSource
 
 __all__ = [
