@@ -271,16 +271,46 @@ timeline. This is a hard cap — hero and emotional slots included. Infotainment
 expect a visual change every 4–5 seconds. If a subject needs more screen time, use two
 different clips of the same subject back-to-back.
 
-**Planning rule**: for a section with N seconds of coverage, plan `ceil(N/5)` cuts and
-acquire `ceil(N/5) × 1.5` unique clips (buffer for rejects).
+**Planning rule**: Calculate slot count from actual TTS duration BEFORE downloading anything:
 
-For a 10-minute video: acquire at least 120 × 1.5 = 180 candidate clips (not 10–13).
-With the 60-second reuse window, many of these can overlap across sections — plan
-~30–40 distinct downloads minimum for a 10-min video.
+```python
+import math
+required_slots = math.ceil(voiceover_duration_seconds / 5)
+download_target = math.ceil(required_slots * 1.5)  # 50% buffer for rejects
+# 563s narration  → 113 slots needed → download 170 candidate clips
+# 600s (10 min)   → 120 slots needed → download 180 candidate clips
+```
+
+Run this calculation first, then download `download_target` clips. Never proceed to the
+trimming/slot-assignment phase with fewer clips than `required_slots`. Every slot must
+have its own unique clip — no clip may appear more than once in the entire video.
 
 **Exception**: animated Remotion scenes (`stat_card`, `bar_chart`, `kpi_grid`, etc.) may
 run 8–20 seconds — internal animation keeps them engaging. The 5s cap applies only
 to raw footage and still images.
+
+### FFmpeg concat — always use absolute paths, always check=True
+
+A common failure mode: ffmpeg concat produces a 0-byte output file because the concat
+list contained relative paths or wrong filenames. Always use absolute paths:
+
+```python
+import os, subprocess
+
+concat_list_path = '/tmp/video_concat_list.txt'
+with open(concat_list_path, 'w') as f:
+    for clip_path in trimmed_clip_paths:
+        f.write(f"file '{os.path.abspath(clip_path)}'\n")
+
+subprocess.run(
+    ['ffmpeg', '-y', '-f', 'concat', '-safe', '0',
+     '-i', concat_list_path, '-c', 'copy', str(video_only_path)],
+    check=True, stdin=subprocess.DEVNULL, capture_output=True,
+)
+```
+
+Use `check=True` — if ffmpeg fails, the exception will surface the error. Never silently
+ignore a 0-byte output. If concat fails, inspect `result.stderr` for the error message.
 
 ---
 
@@ -299,15 +329,14 @@ FontSize=14,Alignment=2,MarginV=34,BorderStyle=3,Outline=1
 Avoid large subtitle settings like `FontSize=17` with `MarginV=72` on 1080p output;
 that places the subtitle block too high and makes the frame feel crowded.
 
-### Clip reuse — 60-second window, not global uniqueness
+### Clip reuse — strict global uniqueness, no exceptions
 
-Do not reuse the same clip within 60 seconds of its previous appearance. Reuse across
-well-separated sections of a long video is permitted — this is not a violation. The
-rule prevents back-to-back or nearby repeats, not every occurrence of a clip.
+Every clip may appear at most once in the entire video. Maintain a set of all used
+clip filenames and check it before assigning any slot. If a candidate clip is already
+in the set, search for a different clip — never place the same file twice.
 
-Using global uniqueness (never reuse any clip ever) causes long-script refusals when
-the model calculates hundreds of unique clips are required. The correct rule: 60-second
-window. Search with varied queries per segment to minimize reuse naturally.
+With a 1.5× download buffer (see B-roll Pacing above), global uniqueness is achievable
+for any video length. Calculate required downloads before starting acquisition.
 
 ---
 
