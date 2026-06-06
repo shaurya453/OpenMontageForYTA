@@ -4,6 +4,9 @@ Start here. This is the complete operating guide and agent contract for OpenMont
 
 For architecture, key files, and conventions see [`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md).
 
+**MANDATORY: After reading this file, read [`AGENT_KNOWLEDGE.md`](AGENT_KNOWLEDGE.md) before doing any production work.**
+It contains hard-won production fixes and gotchas discovered in live runs. Its rules override any contradictory defaults in this guide.
+
 ## First Interaction — Onboarding
 
 When the user's first message is vague, exploratory, or asks what you can do ("make me a video", "what can you do?", "help me create something", "I want to make content"), read the onboarding skill **before** doing anything else:
